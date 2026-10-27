@@ -1,0 +1,891 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Band Seating Charts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  /* Layout concept: an editor rail (roster, by row/group/chair) beside a live
+     SVG stage diagram; the diagram itself is drawn like printed sheet music
+     ink, so it reads the same compositional language in both themes. */
+  :root{
+    --bg:#f3efe6; --surface:#ffffff; --surface-2:#faf7f0;
+    --border:#d9d0bd; --border-strong:#b9ad92;
+    --fg:#2a2420; --fg-muted:#746b5c; --fg-faint:#a89d87;
+    --accent:#a6632b; --accent-fg:#fffaf3;
+    --ink:#2a2420; --paper:#ffffff;
+    --danger:#a23b2f;
+    --font-display:'Fraunces',Georgia,'Times New Roman',serif;
+    --font-body:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1713; --surface:#262019; --surface-2:#211c16;
+      --border:#423a2d; --border-strong:#5c5140;
+      --fg:#efe8da; --fg-muted:#b2a890; --fg-faint:#7d7260;
+      --accent:#d59255; --accent-fg:#241a0e;
+      --ink:#efe8da; --paper:#1e1a14;
+      --danger:#e2887a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1713; --surface:#262019; --surface-2:#211c16;
+    --border:#423a2d; --border-strong:#5c5140;
+    --fg:#efe8da; --fg-muted:#b2a890; --fg-faint:#7d7260;
+    --accent:#d59255; --accent-fg:#241a0e;
+    --ink:#efe8da; --paper:#1e1a14;
+    --danger:#e2887a;
+    color-scheme: dark;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:var(--font-body); font-size:14px; line-height:1.45;
+    padding-left:max(16px, env(safe-area-inset-left,0px));
+    padding-right:max(16px, env(safe-area-inset-right,0px));
+  }
+  h1,h2,h3{font-family:var(--font-display); font-weight:600; margin:0; text-wrap:balance;}
+  button{font-family:inherit;}
+  input[type=text]{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+
+  .shell{
+    max-width:1400px; margin:0 auto;
+    padding-block:20px 48px;
+  }
+  .masthead{
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:16px; flex-wrap:wrap; margin-bottom:18px;
+  }
+  .masthead h1{font-size:1.5rem; letter-spacing:-0.01em;}
+  .masthead p{margin:2px 0 0; color:var(--fg-muted); font-size:0.86rem;}
+
+  .workspace{
+    display:grid;
+    grid-template-columns: 360px 1fr;
+    gap:18px;
+    align-items:start;
+  }
+  @media (max-width: 860px){
+    .workspace{grid-template-columns: 1fr;}
+  }
+
+  /* ---- panels ---- */
+  .panel{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:16px;
+  }
+  .panel + .panel{margin-top:14px;}
+  .panel-title{
+    font-family:var(--font-body); font-weight:700; font-size:0.72rem;
+    text-transform:uppercase; letter-spacing:0.08em; color:var(--fg-muted);
+    margin:0 0 10px;
+  }
+
+  label.field{display:block; margin-bottom:12px;}
+  label.field:last-child{margin-bottom:0;}
+  label.field span{
+    display:block; font-size:0.72rem; font-weight:600; color:var(--fg-muted);
+    text-transform:uppercase; letter-spacing:0.06em; margin-bottom:5px;
+  }
+  .text-input{
+    width:100%; padding:8px 10px; border-radius:7px;
+    border:1px solid var(--border-strong); background:var(--surface-2);
+    color:var(--fg); font-size:0.92rem;
+  }
+
+  .seg{
+    display:flex; border:1px solid var(--border-strong); border-radius:8px;
+    overflow:hidden;
+  }
+  .seg button{
+    flex:1; padding:8px 6px; background:var(--surface-2); color:var(--fg-muted);
+    border:0; border-right:1px solid var(--border-strong); cursor:pointer;
+    font-size:0.8rem; font-weight:600;
+  }
+  .seg button:last-child{border-right:0;}
+  .seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-fg);}
+  .seg-row{margin-bottom:12px;}
+
+  /* ---- roster editor ---- */
+  .rows{display:flex; flex-direction:column; gap:12px;}
+  .row-card{
+    border:1px solid var(--border); border-radius:9px; background:var(--surface-2);
+    padding:10px;
+  }
+  .row-card-head{
+    display:flex; align-items:center; justify-content:space-between; gap:6px;
+    margin-bottom:8px;
+  }
+  .row-card-head .row-name{
+    font-size:0.78rem; font-weight:700; color:var(--fg-muted);
+    text-transform:uppercase; letter-spacing:0.05em;
+  }
+  .row-card-head .row-actions{display:flex; gap:4px;}
+  .icon-btn{
+    width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid var(--border-strong); background:var(--surface);
+    color:var(--fg-muted); border-radius:6px; cursor:pointer; font-size:0.8rem; line-height:1;
+    padding:0;
+  }
+  .icon-btn:hover{color:var(--fg); border-color:var(--fg-muted);}
+  .icon-btn.danger:hover{color:var(--danger); border-color:var(--danger);}
+
+  .groups{display:flex; flex-direction:column; gap:7px;}
+  .group{
+    display:flex; flex-wrap:wrap; align-items:center; gap:5px;
+    background:var(--surface); border:1px dashed var(--border-strong);
+    border-radius:7px; padding:6px;
+  }
+  .chip{
+    display:flex; align-items:center; gap:2px;
+    background:var(--surface-2); border:1px solid var(--border);
+    border-radius:6px; padding:2px 2px 2px 7px;
+  }
+  .chip input{
+    border:0; background:transparent; color:var(--fg);
+    font-size:0.82rem; width:78px; padding:3px 2px;
+    font-family:inherit;
+  }
+  .chip button{
+    border:0; background:transparent; color:var(--fg-faint); cursor:pointer;
+    width:19px; height:19px; border-radius:5px; font-size:0.85rem; line-height:1;
+  }
+  .chip button:hover{color:var(--danger); background:var(--surface);}
+  .chip-move{display:flex; flex-direction:column; gap:0;}
+  .chip-move button{width:14px; height:10px; font-size:0.55rem; color:var(--fg-faint);}
+  .add-chair-btn{
+    border:1px dashed var(--border-strong); background:transparent; color:var(--fg-muted);
+    border-radius:6px; width:30px; height:30px; cursor:pointer; font-size:0.95rem;
+  }
+  .add-chair-btn:hover{color:var(--accent); border-color:var(--accent);}
+  .group-del{
+    border:0; background:transparent; color:var(--fg-faint); cursor:pointer;
+    font-size:0.75rem; padding:4px 6px; margin-left:auto; border-radius:5px;
+  }
+  .group-del:hover{color:var(--danger);}
+
+  .row-tools{display:flex; gap:6px; margin-top:8px;}
+  .ghost-btn{
+    flex:1; border:1px dashed var(--border-strong); background:transparent;
+    color:var(--fg-muted); border-radius:7px; padding:6px 8px; cursor:pointer;
+    font-size:0.78rem; font-weight:600;
+  }
+  .ghost-btn:hover{color:var(--accent); border-color:var(--accent);}
+
+  .quickadd{display:flex; gap:6px; margin-top:8px;}
+  .quickadd input{flex:1;}
+  .quickadd button{
+    border:1px solid var(--accent); background:var(--accent); color:var(--accent-fg);
+    border-radius:7px; padding:0 12px; font-size:0.78rem; font-weight:700; cursor:pointer;
+  }
+
+  .primary-btn{
+    width:100%; border:1px solid var(--accent); background:var(--accent);
+    color:var(--accent-fg); border-radius:8px; padding:10px; font-weight:700;
+    font-size:0.85rem; cursor:pointer; margin-top:4px;
+  }
+  .text-btn{
+    border:0; background:none; color:var(--fg-muted); font-size:0.76rem;
+    text-decoration:underline; text-underline-offset:2px; cursor:pointer; padding:4px;
+  }
+  .text-btn.danger{color:var(--danger);}
+
+  .hint{font-size:0.76rem; color:var(--fg-muted); margin:8px 2px 0; line-height:1.5;}
+
+  /* ---- stage panel ---- */
+  .stage-panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:16px;
+  }
+  .stage-scroll{
+    overflow-x:auto; overflow-y:hidden; border-radius:8px;
+    background:var(--paper); border:1px solid var(--border);
+  }
+  .stage-scroll svg{display:block;}
+  .stage-footer{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    margin-top:10px; flex-wrap:wrap;
+  }
+  .stage-footer .hint{margin:0;}
+  .badge{
+    font-family:var(--font-mono); font-size:0.72rem; color:var(--fg-muted);
+    background:var(--surface-2); border:1px solid var(--border); border-radius:5px;
+    padding:3px 7px;
+  }
+
+  @media (max-width:520px){
+    .chip input{width:62px;}
+  }
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <div>
+      <h1>Band Seating Charts</h1>
+      <p>Build a roster once, then draw it as straight rows, a semicircle, or a square-sided U around the conductor.</p>
+    </div>
+    <span class="badge" id="autosaveBadge">saved in this browser</span>
+  </header>
+
+  <div class="workspace">
+    <!-- EDITOR COLUMN -->
+    <div>
+      <section class="panel">
+        <p class="panel-title">Chart</p>
+        <label class="field">
+          <span>Title</span>
+          <input class="text-input" id="titleInput" type="text">
+        </label>
+        <label class="field">
+          <span>Conductor</span>
+          <input class="text-input" id="conductorInput" type="text">
+        </label>
+      </section>
+
+      <section class="panel">
+        <p class="panel-title">Formation</p>
+        <div class="seg-row">
+          <div class="seg" id="layoutSeg" role="group" aria-label="Layout shape">
+            <button type="button" data-layout="straight">Straight</button>
+            <button type="button" data-layout="semicircle">Semicircle</button>
+            <button type="button" data-layout="u">U&#8209;shape</button>
+          </div>
+        </div>
+        <div class="seg">
+          <button type="button" data-perspective="conductor" id="persConductor">Conductor&rsquo;s view</button>
+          <button type="button" data-perspective="band" id="persBand">Band&rsquo;s view</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="panel-title">Roster, back row first</p>
+        <div class="rows" id="rowsList"></div>
+        <button type="button" class="primary-btn" id="addRowBtn">+ Add row</button>
+        <p class="hint">A row becomes one straight line, one arc, or one horseshoe, depending on the formation above. Add rows starting from the back (percussion, brass) and finish with the row nearest the conductor.</p>
+      </section>
+
+      <section class="panel">
+        <button type="button" class="text-btn danger" id="clearAllBtn">Clear roster</button>
+      </section>
+    </div>
+
+    <!-- STAGE COLUMN -->
+    <div class="stage-panel">
+      <div class="stage-scroll" id="stageScroll">
+        <svg id="stageSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="stage-footer">
+        <span class="hint">To save or share this chart, use your browser&rsquo;s own screenshot or print tool &mdash; this page can&rsquo;t trigger downloads itself.</span>
+        <span class="badge" id="countBadge"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORE_KEY = "bandSeatingChart.v1";
+  var nextId = 1;
+  function uid(){ return "id" + (nextId++); }
+
+  function exampleState(){
+    function chair(label){ return { id: uid(), label: label }; }
+    function group(labels){ return { id: uid(), chairs: labels.map(chair) }; }
+    function row(groups){ return { id: uid(), groups: groups }; }
+    return {
+      title: "Beginner Band Practice",
+      conductor: "Judy",
+      layout: "straight",
+      perspective: "conductor",
+      rows: [
+        row([
+          group(["Bass Drum","Snare Drum","Snare Drum","Bells"]),
+          group(["Trumpet","Trumpet","Trumpet","Trumpet","Trumpet"])
+        ]),
+        row([
+          group(["Clarinet","Clarinet","Clarinet","Clarinet"]),
+          group(["Alto Sax","Alto Sax","Alto Sax"]),
+          group(["Flute","Flute"])
+        ]),
+        row([
+          group(["Clarinet","Clarinet","Clarinet","Trombone","Trombone"]),
+          group(["Alto Sax","Alto Sax"]),
+          group(["Flute","Flute","Flute"])
+        ])
+      ]
+    };
+  }
+
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw){
+        var parsed = JSON.parse(raw);
+        if(parsed && Array.isArray(parsed.rows)){
+          // re-sync id counter above anything restored
+          var maxNum = 0;
+          JSON.stringify(parsed).replace(/"id(\d+)"/g, function(_, n){
+            maxNum = Math.max(maxNum, parseInt(n,10)); return _;
+          });
+          nextId = maxNum + 1;
+          return parsed;
+        }
+      }
+    }catch(e){ /* ignore, fall through to example */ }
+    return exampleState();
+  }
+
+  var state = loadState();
+  var saveTimer = null;
+  function scheduleSave(){
+    var badge = document.getElementById("autosaveBadge");
+    if(badge) badge.textContent = "saving…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function(){
+      try{
+        localStorage.setItem(STORE_KEY, JSON.stringify(state));
+        if(badge) badge.textContent = "saved in this browser";
+      }catch(e){
+        if(badge) badge.textContent = "not saved (storage unavailable)";
+      }
+    }, 300);
+  }
+
+  function parseQuickAdd(text){
+    return text.split(",").map(function(tok){ return tok.trim(); }).filter(Boolean)
+      .map(function(tok){
+        var m = tok.match(/^(.*?)(?:\s*[x×]\s*(\d+))$/i);
+        if(m){
+          var label = m[1].trim();
+          var count = Math.max(1, Math.min(40, parseInt(m[2],10) || 1));
+          var arr = [];
+          for(var i=0;i<count;i++) arr.push(label);
+          return arr;
+        }
+        return [tok];
+      })
+      .reduce(function(a,b){ return a.concat(b); }, []);
+  }
+
+  // ---------------- EDITOR RENDERING ----------------
+
+  function renderEditor(){
+    document.getElementById("titleInput").value = state.title;
+    document.getElementById("conductorInput").value = state.conductor;
+
+    var layoutBtns = document.querySelectorAll("#layoutSeg button");
+    layoutBtns.forEach(function(b){
+      b.setAttribute("aria-pressed", String(b.dataset.layout === state.layout));
+    });
+    document.getElementById("persConductor").setAttribute("aria-pressed", String(state.perspective === "conductor"));
+    document.getElementById("persBand").setAttribute("aria-pressed", String(state.perspective === "band"));
+
+    var list = document.getElementById("rowsList");
+    list.innerHTML = "";
+
+    state.rows.forEach(function(row, rowIndex){
+      var card = document.createElement("div");
+      card.className = "row-card";
+
+      var head = document.createElement("div");
+      head.className = "row-card-head";
+      var name = document.createElement("span");
+      name.className = "row-name";
+      name.textContent = "Row " + (rowIndex+1) + (rowIndex===0 ? " · back" : (rowIndex===state.rows.length-1 ? " · front" : ""));
+      head.appendChild(name);
+
+      var actions = document.createElement("div");
+      actions.className = "row-actions";
+      actions.appendChild(iconBtn("↑","Move row back", function(){
+        if(rowIndex>0){ swap(state.rows, rowIndex, rowIndex-1); commit(); }
+      }, rowIndex===0));
+      actions.appendChild(iconBtn("↓","Move row forward", function(){
+        if(rowIndex<state.rows.length-1){ swap(state.rows, rowIndex, rowIndex+1); commit(); }
+      }, rowIndex===state.rows.length-1));
+      actions.appendChild(iconBtn("×","Delete row", function(){
+        state.rows.splice(rowIndex,1); commit();
+      }, false, true));
+      head.appendChild(actions);
+      card.appendChild(head);
+
+      var groupsEl = document.createElement("div");
+      groupsEl.className = "groups";
+
+      row.groups.forEach(function(group, groupIndex){
+        var g = document.createElement("div");
+        g.className = "group";
+
+        group.chairs.forEach(function(chairObj, chairIndex){
+          g.appendChild(chip(chairObj, function(){
+            if(chairIndex>0) swap(group.chairs, chairIndex, chairIndex-1), commit();
+          }, function(){
+            if(chairIndex<group.chairs.length-1) swap(group.chairs, chairIndex, chairIndex+1), commit();
+          }, function(){
+            group.chairs.splice(chairIndex,1);
+            if(group.chairs.length===0) row.groups.splice(groupIndex,1);
+            commit();
+          }, chairIndex===0, chairIndex===group.chairs.length-1));
+        });
+
+        var addChair = document.createElement("button");
+        addChair.type = "button";
+        addChair.className = "add-chair-btn";
+        addChair.textContent = "+";
+        addChair.title = "Add chair to this group";
+        addChair.addEventListener("click", function(){
+          group.chairs.push({ id: uid(), label: "Instrument" });
+          commit();
+        });
+        g.appendChild(addChair);
+
+        var delGroup = document.createElement("button");
+        delGroup.type = "button";
+        delGroup.className = "group-del";
+        delGroup.textContent = "remove group";
+        delGroup.addEventListener("click", function(){
+          row.groups.splice(groupIndex,1); commit();
+        });
+        g.appendChild(delGroup);
+
+        groupsEl.appendChild(g);
+      });
+
+      card.appendChild(groupsEl);
+
+      var tools = document.createElement("div");
+      tools.className = "row-tools";
+      var addGroupBtn = document.createElement("button");
+      addGroupBtn.type = "button";
+      addGroupBtn.className = "ghost-btn";
+      addGroupBtn.textContent = "+ New group (gap)";
+      addGroupBtn.addEventListener("click", function(){
+        row.groups.push({ id: uid(), chairs: [{ id: uid(), label: "Instrument" }] });
+        commit();
+      });
+      tools.appendChild(addGroupBtn);
+      card.appendChild(tools);
+
+      var qa = document.createElement("div");
+      qa.className = "quickadd";
+      var qaInput = document.createElement("input");
+      qaInput.className = "text-input";
+      qaInput.type = "text";
+      qaInput.placeholder = "Flute x3, Alto Sax x2";
+      qaInput.id = "quickadd-" + row.id;
+      var qaBtn = document.createElement("button");
+      qaBtn.type = "button";
+      qaBtn.textContent = "Add";
+      function commitQuickAdd(){
+        var labels = parseQuickAdd(qaInput.value);
+        if(labels.length){
+          row.groups.push({ id: uid(), chairs: labels.map(function(l){ return { id: uid(), label: l }; }) });
+          qaInput.value = "";
+          commit();
+        }
+      }
+      qaBtn.addEventListener("click", commitQuickAdd);
+      qaInput.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); commitQuickAdd(); } });
+      qa.appendChild(qaInput);
+      qa.appendChild(qaBtn);
+      card.appendChild(qa);
+
+      list.appendChild(card);
+    });
+  }
+
+  function chip(chairObj, onLeft, onRight, onDel, isFirst, isLast){
+    var c = document.createElement("div");
+    c.className = "chip";
+
+    var mv = document.createElement("div");
+    mv.className = "chip-move";
+    var up = document.createElement("button");
+    up.type = "button"; up.textContent = "‹"; up.title = "Move earlier";
+    up.style.opacity = isFirst ? "0.3" : "1";
+    up.addEventListener("click", onLeft);
+    mv.appendChild(up);
+    c.appendChild(mv);
+
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = chairObj.label;
+    input.id = "chair-" + chairObj.id;
+    input.addEventListener("input", function(){
+      chairObj.label = input.value;
+      scheduleSave();
+      renderChart();
+    });
+    input.addEventListener("blur", renderEditorCountsOnly);
+    c.appendChild(input);
+
+    var right = document.createElement("button");
+    right.type = "button"; right.textContent = "›"; right.title = "Move later";
+    right.style.opacity = isLast ? "0.3" : "1";
+    right.addEventListener("click", onRight);
+    c.appendChild(right);
+
+    var del = document.createElement("button");
+    del.type = "button"; del.textContent = "×"; del.title = "Remove chair";
+    del.addEventListener("click", onDel);
+    c.appendChild(del);
+
+    return c;
+  }
+
+  function iconBtn(symbol, title, onClick, disabled, danger){
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon-btn" + (danger ? " danger" : "");
+    b.textContent = symbol;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    if(disabled){ b.disabled = true; b.style.opacity = "0.35"; b.style.cursor = "default"; }
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function swap(arr, i, j){ var t = arr[i]; arr[i] = arr[j]; arr[j] = t; }
+
+  function renderEditorCountsOnly(){ scheduleSave(); renderChart(); }
+
+  function commit(){ scheduleSave(); renderEditor(); renderChart(); }
+
+  // ---------------- CHART GEOMETRY + RENDERING ----------------
+
+  var CHAIR_W = 62, CHAIR_H = 62;
+  var CHAIR_SLOT = 70, GROUP_GAP = 44;
+  var ROW_GAP = 96;
+  var BASE_RADIUS = 118;
+  var BASE_HALFWIDTH = 150, NEST_HALFWIDTH = 70;
+  var U_ASPECT = 1.05;
+  var MIN_ANGLE = 0.45, MAX_ANGLE = 2.85; // radians
+
+  function rowRequiredLength(row){
+    var slots = 0, groups = row.groups.length;
+    row.groups.forEach(function(g){ slots += g.chairs.length; });
+    return slots * CHAIR_SLOT + Math.max(0, groups-1) * GROUP_GAP;
+  }
+
+  function buildStraightSampler(width){
+    return function(d){ return { x: d - width/2, y: 0, angle: 0 }; };
+  }
+  function buildArcSampler(radius, angleSpan){
+    var length = radius*angleSpan;
+    return function(d){
+      var t = (d - length/2) / radius; // radians from center
+      return {
+        x: radius*Math.sin(t),
+        y: radius*Math.cos(t),
+        angle: t*180/Math.PI
+      };
+    };
+  }
+  function buildUSampler(halfWidth, depth){
+    var leftLen = depth, bottomLen = halfWidth*2, rightLen = depth;
+    var total = leftLen + bottomLen + rightLen;
+    return function(d){
+      var dd = d + (total - rowUActualLenCache)/2 * 0; // placeholder, unused
+      var x,y,angle;
+      if(d < leftLen){
+        x = -halfWidth; y = d; angle = 90;
+      } else if(d < leftLen+bottomLen){
+        x = -halfWidth + (d-leftLen); y = depth; angle = 0;
+      } else {
+        var r = d - leftLen - bottomLen;
+        x = halfWidth; y = depth - r; angle = -90;
+      }
+      return { x:x, y:y, angle:angle };
+    };
+  }
+  var rowUActualLenCache = 0;
+
+  function layoutRowChairs(row, sampler, totalLen, requiredLen){
+    var scale = requiredLen > 0 ? totalLen / requiredLen : 1;
+    var slot = CHAIR_SLOT * scale, gap = GROUP_GAP * scale;
+    var placements = [];
+    var cursor = 0;
+    row.groups.forEach(function(group, gi){
+      if(gi>0) cursor += gap;
+      group.chairs.forEach(function(ch, ci){
+        var center = cursor + slot/2;
+        var p = sampler(center);
+        placements.push({
+          chair: ch, x: p.x, y: p.y, angle: p.angle,
+          isGroupStart: ci===0, isGroupEnd: ci===group.chairs.length-1
+        });
+        cursor += slot;
+      });
+    });
+    return placements;
+  }
+
+  function wrapLabel(label){
+    var words = label.split(" ");
+    if(words.length<2) return [label];
+    var mid = Math.ceil(words.length/2);
+    return [words.slice(0,mid).join(" "), words.slice(mid).join(" ")];
+  }
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){
+    var n = document.createElementNS(SVG_NS, tag);
+    for(var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  function computeRows(){
+    var n = state.rows.length;
+    var perRow = state.rows.map(function(row, i){
+      var requiredLen = rowRequiredLength(row);
+      var ringOffset = n - 1 - i; // 0 = closest to conductor (front)
+      return { row: row, requiredLen: requiredLen, ringOffset: ringOffset, index: i };
+    });
+    return perRow;
+  }
+
+  function renderChart(){
+    var svg = document.getElementById("stageSvg");
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var rowsData = computeRows();
+    var n = rowsData.length;
+    var mode = state.layout;
+    var mirror = state.perspective === "band";
+
+    var allPlacements = []; // {x,y,angle,chair,isGroupStart,isGroupEnd}
+    var cx = 0;
+    var conductorPos;
+
+    if(mode === "straight"){
+      var topY = 40;
+      var maxWidth = 0;
+      rowsData.forEach(function(rd){ maxWidth = Math.max(maxWidth, rd.requiredLen); });
+      rowsData.forEach(function(rd, i){
+        var y = topY + i*ROW_GAP;
+        var sampler = function(d){ return { x: d - rd.requiredLen/2, y: y, angle: 0 }; };
+        var placed = layoutRowChairs(rd.row, sampler, rd.requiredLen, rd.requiredLen);
+        allPlacements = allPlacements.concat(placed);
+      });
+      conductorPos = { x: 0, y: topY + n*ROW_GAP + 24 };
+    }
+    else if(mode === "semicircle"){
+      var conductorY = 30;
+      rowsData.forEach(function(rd){
+        var radius = BASE_RADIUS + rd.ringOffset*ROW_GAP;
+        var angleSpan = requiredToAngle(rd.requiredLen, radius);
+        var length = radius*angleSpan;
+        var sampler = function(d){
+          var t = (d - length/2) / radius;
+          return {
+            x: radius*Math.sin(t),
+            y: conductorY + radius*Math.cos(t),
+            angle: t*180/Math.PI
+          };
+        };
+        var placed = layoutRowChairs(rd.row, sampler, length, rd.requiredLen);
+        allPlacements = allPlacements.concat(placed);
+      });
+      conductorPos = { x: 0, y: conductorY - 54 };
+    }
+    else { // u-shape
+      var conductorY2 = 30;
+      rowsData.forEach(function(rd){
+        var contentHalf = rd.requiredLen / (2*(U_ASPECT+1));
+        var halfWidth = Math.max(contentHalf, BASE_HALFWIDTH + rd.ringOffset*NEST_HALFWIDTH);
+        var depth = halfWidth*U_ASPECT;
+        var leftLen = depth, bottomLen = halfWidth*2, rightLen = depth;
+        var total = leftLen+bottomLen+rightLen;
+        var sampler = function(d, halfWidth, depth, leftLen, bottomLen){
+          var x,y,angle;
+          if(d < leftLen){ x=-halfWidth; y=conductorY2+d; angle=90; }
+          else if(d < leftLen+bottomLen){ x=-halfWidth+(d-leftLen); y=conductorY2+depth; angle=0; }
+          else { var r=d-leftLen-bottomLen; x=halfWidth; y=conductorY2+depth-r; angle=-90; }
+          return {x:x,y:y,angle:angle};
+        };
+        var boundSampler = (function(hw,dp,ll,bl){ return function(d){ return sampler(d,hw,dp,ll,bl); }; })(halfWidth,depth,leftLen,bottomLen);
+        var placed = layoutRowChairs(rd.row, boundSampler, total, rd.requiredLen);
+        allPlacements = allPlacements.concat(placed);
+      });
+      conductorPos = { x: 0, y: conductorY2 - 54 };
+    }
+
+    if(mirror){
+      allPlacements.forEach(function(p){ p.x = -p.x; p.angle = -p.angle; });
+      conductorPos.x = -conductorPos.x;
+    }
+
+    // bounds
+    var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    function extend(x,y){ minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y); }
+    extend(conductorPos.x-60, conductorPos.y-26);
+    extend(conductorPos.x+60, conductorPos.y+26);
+    allPlacements.forEach(function(p){
+      extend(p.x-CHAIR_W/2-6, p.y-CHAIR_H/2-6);
+      extend(p.x+CHAIR_W/2+6, p.y+CHAIR_H/2+6);
+    });
+    if(!isFinite(minX)){ minX=-100; maxX=100; minY=-40; maxY=40; }
+
+    var pad = 36, titleH = state.title ? 46 : 10;
+    var vbW = (maxX-minX) + pad*2;
+    var vbH = (maxY-minY) + pad*2 + titleH;
+    var offX = -minX + pad;
+    var offY = -minY + pad + titleH;
+
+    var renderW = Math.max(560, Math.min(1400, vbW));
+    svg.setAttribute("viewBox", "0 0 " + vbW + " " + vbH);
+    svg.setAttribute("width", renderW);
+    svg.setAttribute("height", vbH * (renderW/vbW));
+
+    var ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#2a2420";
+    var paper = getComputedStyle(document.documentElement).getPropertyValue("--paper").trim() || "#fff";
+    var accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a6632b";
+
+    svg.appendChild(el("rect", { x:0, y:0, width:vbW, height:vbH, fill:paper }));
+
+    if(state.title){
+      var t = el("text", {
+        x: vbW/2, y: 30, "text-anchor":"middle",
+        "font-family":"Fraunces, Georgia, serif", "font-weight":"700",
+        "font-size":"22", fill: ink
+      });
+      t.textContent = state.title;
+      svg.appendChild(t);
+    }
+
+    // group connector lines (drawn first, under boxes)
+    var lineGroupsByRow = groupConnectorSegments(allPlacements);
+    lineGroupsByRow.forEach(function(seg){
+      var line = el("line", {
+        x1: seg.x1+offX, y1: seg.y1+offY, x2: seg.x2+offX, y2: seg.y2+offY,
+        stroke: ink, "stroke-width":"1.5"
+      });
+      svg.appendChild(line);
+    });
+
+    // chairs
+    allPlacements.forEach(function(p){
+      var gx = p.x+offX, gy = p.y+offY;
+      var g = el("g", { transform: "translate(" + gx + "," + gy + ") rotate(" + p.angle + ")" });
+      g.appendChild(el("rect", {
+        x: -CHAIR_W/2, y: -CHAIR_H/2, width: CHAIR_W, height: CHAIR_H,
+        rx: 4, fill: paper, stroke: ink, "stroke-width":"1.8"
+      }));
+      var lines = wrapLabel(p.chair.label || "");
+      var fontSize = lines.length>1 ? 11 : 12.5;
+      lines.forEach(function(ln, li){
+        var ty = (li - (lines.length-1)/2) * (fontSize+2);
+        var txt = el("text", {
+          x:0, y: ty+4, "text-anchor":"middle",
+          "font-family":"'Public Sans', sans-serif", "font-weight":"600",
+          "font-size": fontSize, fill: ink
+        });
+        txt.textContent = ln;
+        g.appendChild(txt);
+      });
+      svg.appendChild(g);
+    });
+
+    // conductor
+    var cgx = conductorPos.x+offX, cgy = conductorPos.y+offY;
+    var cg = el("g", { transform: "translate(" + cgx + "," + cgy + ")" });
+    cg.appendChild(el("rect", {
+      x:-56, y:-24, width:112, height:48, rx:5,
+      fill:paper, stroke:accent, "stroke-width":"2.4"
+    }));
+    var ctxt = el("text", {
+      x:0, y:6, "text-anchor":"middle",
+      "font-family":"'Public Sans', sans-serif", "font-weight":"700",
+      "font-size":"16", fill: ink
+    });
+    ctxt.textContent = state.conductor || "Conductor";
+    cg.appendChild(ctxt);
+    svg.appendChild(cg);
+
+    var count = allPlacements.length;
+    document.getElementById("countBadge").textContent =
+      count + " chair" + (count===1?"":"s") + " · " + state.rows.length + " row" + (state.rows.length===1?"":"s");
+  }
+
+  function requiredToAngle(requiredLen, radius){
+    var angle = requiredLen / radius;
+    return Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, angle));
+  }
+
+  function groupConnectorSegments(placements){
+    // draws a short stub+connector per contiguous run between isGroupStart..isGroupEnd
+    // placements are already in row order because layoutRowChairs preserves order
+    var segs = [];
+    var runStart = null;
+    for(var i=0;i<placements.length;i++){
+      var p = placements[i];
+      if(p.isGroupStart) runStart = p;
+      if(p.isGroupEnd && runStart){
+        if(runStart !== p){
+          segs.push({ x1: runStart.x, y1: runStart.y, x2: p.x, y2: p.y });
+        }
+        runStart = null;
+      }
+    }
+    return segs;
+  }
+
+  // ---------------- WIRE UP CONTROLS ----------------
+
+  document.getElementById("titleInput").addEventListener("input", function(e){
+    state.title = e.target.value; scheduleSave(); renderChart();
+  });
+  document.getElementById("conductorInput").addEventListener("input", function(e){
+    state.conductor = e.target.value; scheduleSave(); renderChart();
+  });
+
+  document.querySelectorAll("#layoutSeg button").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.layout = b.dataset.layout; scheduleSave(); renderEditor(); renderChart();
+    });
+  });
+  document.getElementById("persConductor").addEventListener("click", function(){
+    state.perspective = "conductor"; scheduleSave(); renderEditor(); renderChart();
+  });
+  document.getElementById("persBand").addEventListener("click", function(){
+    state.perspective = "band"; scheduleSave(); renderEditor(); renderChart();
+  });
+
+  document.getElementById("addRowBtn").addEventListener("click", function(){
+    state.rows.push({ id: uid(), groups: [{ id: uid(), chairs: [{ id: uid(), label: "Instrument" }] }] });
+    commit();
+  });
+
+  var clearArmed = false, clearTimer = null;
+  var clearBtn = document.getElementById("clearAllBtn");
+  clearBtn.addEventListener("click", function(){
+    if(!clearArmed){
+      clearArmed = true;
+      clearBtn.textContent = "Click again to confirm";
+      clearTimer = setTimeout(function(){ clearArmed=false; clearBtn.textContent="Clear roster"; }, 3000);
+    } else {
+      clearTimeout(clearTimer);
+      clearArmed = false;
+      clearBtn.textContent = "Clear roster";
+      state.rows = [];
+      state.title = "";
+      commit();
+    }
+  });
+
+  // ---------------- INITIAL RENDER ----------------
+  renderEditor();
+  renderChart();
+
+  window.addEventListener("resize", renderChart);
+})();
+</script>
+
+</body></html>
