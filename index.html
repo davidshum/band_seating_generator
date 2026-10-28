@@ -111,6 +111,10 @@
   .seg button:last-child{border-right:0;}
   .seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-fg);}
   .seg-row{margin-bottom:12px;}
+  .side-pick{flex:0 0 100%; display:flex; align-items:center; gap:8px; margin-bottom:2px;}
+  .side-pick .seg{width:auto;}
+  .side-pick .seg button{flex:none; padding:4px 10px; font-size:0.74rem;}
+  .side-pick .side-label{font-size:0.72rem; font-weight:700; color:var(--fg-muted); text-transform:uppercase; letter-spacing:0.05em;}
 
   /* ---- roster editor ---- */
   .rows{display:flex; flex-direction:column; gap:12px;}
@@ -298,7 +302,7 @@
 
   function exampleState(){
     function chair(label){ return { id: uid(), label: label }; }
-    function group(labels){ return { id: uid(), chairs: labels.map(chair) }; }
+    function group(labels, side){ return { id: uid(), side: side, chairs: labels.map(chair) }; }
     function row(groups){ return { id: uid(), groups: groups }; }
     return {
       title: "Beginner Band Practice",
@@ -307,18 +311,18 @@
       perspective: "conductor",
       rows: [
         row([
-          group(["Bass Drum","Snare Drum","Snare Drum","Bells"]),
-          group(["Trumpet","Trumpet","Trumpet","Trumpet","Trumpet"])
+          group(["Bass Drum","Snare Drum","Snare Drum","Bells"], "left"),
+          group(["Trumpet","Trumpet","Trumpet","Trumpet","Trumpet"], "center")
         ]),
         row([
-          group(["Clarinet","Clarinet","Clarinet","Clarinet"]),
-          group(["Alto Sax","Alto Sax","Alto Sax"]),
-          group(["Flute","Flute"])
+          group(["Clarinet","Clarinet","Clarinet","Clarinet"], "left"),
+          group(["Alto Sax","Alto Sax","Alto Sax"], "center"),
+          group(["Flute","Flute"], "right")
         ]),
         row([
-          group(["Clarinet","Clarinet","Clarinet","Trombone","Trombone"]),
-          group(["Alto Sax","Alto Sax"]),
-          group(["Flute","Flute","Flute"])
+          group(["Clarinet","Clarinet","Clarinet","Trombone","Trombone"], "left"),
+          group(["Alto Sax","Alto Sax"], "center"),
+          group(["Flute","Flute","Flute"], "right")
         ])
       ]
     };
@@ -422,6 +426,28 @@
       row.groups.forEach(function(group, groupIndex){
         var g = document.createElement("div");
         g.className = "group";
+
+        if(state.layout === "u"){
+          var pick = document.createElement("div");
+          pick.className = "side-pick";
+          var pl = document.createElement("span");
+          pl.className = "side-label";
+          pl.textContent = "Sits on";
+          pick.appendChild(pl);
+          var seg = document.createElement("div");
+          seg.className = "seg";
+          var cur = groupSide(row, groupIndex);
+          [["left","Left"],["center","Center"],["right","Right"]].forEach(function(o){
+            var b = document.createElement("button");
+            b.type = "button";
+            b.textContent = o[1];
+            b.setAttribute("aria-pressed", String(cur === o[0]));
+            b.addEventListener("click", function(){ group.side = o[0]; commit(); });
+            seg.appendChild(b);
+          });
+          pick.appendChild(seg);
+          g.appendChild(pick);
+        }
 
         group.chairs.forEach(function(chairObj, chairIndex){
           g.appendChild(chip(chairObj, function(){
@@ -562,69 +588,126 @@
 
   var CHAIR_W = 62, CHAIR_H = 62;
   var CHAIR_SLOT = 70, GROUP_GAP = 44;
-  var ROW_GAP = 96;
-  var BASE_RADIUS = 118;
-  var BASE_HALFWIDTH = 150, NEST_HALFWIDTH = 70;
-  var U_ASPECT = 1.05;
-  var MIN_ANGLE = 0.45, MAX_ANGLE = 2.85; // radians
+  var ROW_GAP = 96;        // distance between neighbouring rows
+  var FRONT_GAP = 104;     // conductor to the front row (straight layout)
+  var BASE_RADIUS = 120;   // semicircle: radius of the front row
+  var MAX_ANGLE = 2.85;    // semicircle: widest arc one row may sweep, in radians
+  var U_HALFWIDTH = 120;   // U: half the width of the front row's back bar
+  var U_ARM = 150;         // U: length of the front row's arms
+  var U_ROW_GAP = 80;      // U: spacing between nested rows
+  var U_END_Y = 22;        // U: where the arm tips stop, relative to the conductor
+  var U_CORNER_GAP = 40;   // U: clear space at each corner so chairs don't collide
 
-  function rowRequiredLength(row){
+  // Geometry is built in one frame: conductor at (0,0) facing up, band above (negative y).
+  // Band's view rotates that whole frame 180 degrees.
+
+  function rowLength(row, slot, gap){
     var slots = 0, groups = row.groups.length;
     row.groups.forEach(function(g){ slots += g.chairs.length; });
-    return slots * CHAIR_SLOT + Math.max(0, groups-1) * GROUP_GAP;
+    return slots * slot + Math.max(0, groups-1) * gap;
   }
+  function rowRequiredLength(row){ return rowLength(row, CHAIR_SLOT, GROUP_GAP); }
 
-  function buildStraightSampler(width){
-    return function(d){ return { x: d - width/2, y: 0, angle: 0 }; };
-  }
-  function buildArcSampler(radius, angleSpan){
-    var length = radius*angleSpan;
-    return function(d){
-      var t = (d - length/2) / radius; // radians from center
-      return {
-        x: radius*Math.sin(t),
-        y: radius*Math.cos(t),
-        angle: t*180/Math.PI
-      };
-    };
-  }
-  function buildUSampler(halfWidth, depth){
-    var leftLen = depth, bottomLen = halfWidth*2, rightLen = depth;
-    var total = leftLen + bottomLen + rightLen;
-    return function(d){
-      var dd = d + (total - rowUActualLenCache)/2 * 0; // placeholder, unused
-      var x,y,angle;
-      if(d < leftLen){
-        x = -halfWidth; y = d; angle = 90;
-      } else if(d < leftLen+bottomLen){
-        x = -halfWidth + (d-leftLen); y = depth; angle = 0;
-      } else {
-        var r = d - leftLen - bottomLen;
-        x = halfWidth; y = depth - r; angle = -90;
-      }
-      return { x:x, y:y, angle:angle };
-    };
-  }
-  var rowUActualLenCache = 0;
-
-  function layoutRowChairs(row, sampler, totalLen, requiredLen){
-    var scale = requiredLen > 0 ? totalLen / requiredLen : 1;
-    var slot = CHAIR_SLOT * scale, gap = GROUP_GAP * scale;
+  // Places a row's chairs along a path. sampler(v) maps distance v along the path to {x,y,angle}.
+  function layoutRowChairs(row, sampler, slot, gap){
     var placements = [];
     var cursor = 0;
     row.groups.forEach(function(group, gi){
       if(gi>0) cursor += gap;
       group.chairs.forEach(function(ch, ci){
-        var center = cursor + slot/2;
-        var p = sampler(center);
+        var p = sampler(cursor + slot/2);
         placements.push({
-          chair: ch, x: p.x, y: p.y, angle: p.angle,
+          chair: ch, x: p.x, y: p.y, angle: p.angle, seg: 0,
           isGroupStart: ci===0, isGroupEnd: ci===group.chairs.length-1
         });
         cursor += slot;
       });
     });
     return placements;
+  }
+
+  // Semicircle: widen the radius until the row fits inside MAX_ANGLE. Chairs on an arc are
+  // spaced further apart along the arc so their inner corners don't overlap.
+  function fitArcRow(row, minR){
+    var r = minR, slot, len;
+    for(var k=0;k<20;k++){
+      slot = Math.max(CHAIR_SLOT, (CHAIR_W+4)*r/(r-CHAIR_H/2));
+      len = rowLength(row, slot, GROUP_GAP);
+      if(len/r <= MAX_ANGLE) break;
+      r = len/MAX_ANGLE;
+    }
+    slot = Math.max(CHAIR_SLOT, (CHAIR_W+4)*r/(r-CHAIR_H/2));
+    len = rowLength(row, slot, GROUP_GAP);
+    return { r: r, slot: slot, len: len };
+  }
+
+  // Which side of the U a group sits on. Unset groups get a sensible default:
+  // one group = back bar; two = left and right; three or more = first left, last right, rest back.
+  function groupSide(row, gi){
+    var g = row.groups[gi];
+    if(g && (g.side === "left" || g.side === "center" || g.side === "right")) return g.side;
+    var n = row.groups.length;
+    if(n <= 1) return "center";
+    if(n === 2) return gi === 0 ? "left" : "right";
+    return gi === 0 ? "left" : (gi === n-1 ? "right" : "center");
+  }
+
+  // Each side holds its own groups, in roster order. Along the path they read:
+  // left arm front-to-back, back bar left-to-right, right arm back-to-front.
+  function sideLength(groups){
+    var slots = 0;
+    groups.forEach(function(g){ slots += g.chairs.length; });
+    return slots * CHAIR_SLOT + Math.max(0, groups.length-1) * GROUP_GAP;
+  }
+
+  // Spread a side's chairs out (up to 1.9x) so they fill the arm or bar they sit on.
+  function spreadFor(len, room){
+    return len > 0 ? Math.max(1, Math.min(1.9, room / len)) : 1;
+  }
+
+  function placeSide(groups, startV, seg, mapPoint, f){
+    var out = [], cursor = startV, slot = CHAIR_SLOT * f, gap = GROUP_GAP * f;
+    groups.forEach(function(g, gi){
+      if(gi>0) cursor += gap;
+      g.chairs.forEach(function(ch, ci){
+        var p = mapPoint(cursor + slot/2);
+        out.push({ chair: ch, x: p.x, y: p.y, angle: p.angle, seg: seg,
+          isGroupStart: ci===0, isGroupEnd: ci===g.chairs.length-1 });
+        cursor += slot;
+      });
+    });
+    return out;
+  }
+
+  function uPoint(v, hw, arm, L0){
+    var barY = U_END_Y - arm;
+    if(v < L0) return { x: -hw, y: U_END_Y - v, angle: -90 };
+    if(v < L0 + 2*hw) return { x: -hw + (v-L0), y: barY, angle: 0 };
+    return { x: hw, y: barY + U_CORNER_GAP + (v - L0 - 2*hw), angle: 90 };
+  }
+
+  function fitURow(row, hw, arm){
+    var sides = { left: [], center: [], right: [] };
+    row.groups.forEach(function(g, gi){ sides[groupSide(row, gi)].push(g); });
+    var lenL = sideLength(sides.left), lenC = sideLength(sides.center), lenR = sideLength(sides.right);
+
+    arm = Math.max(arm, Math.max(lenL, lenR) + U_CORNER_GAP);
+    hw = Math.max(hw, lenC/2);
+    var L0 = arm - U_CORNER_GAP, B = 2*hw;
+    function map(v){ return uPoint(v, hw, arm, L0); }
+
+    var fL = spreadFor(lenL, L0), fC = spreadFor(lenC, B), fR = spreadFor(lenR, L0);
+    var placements = []
+      .concat(placeSide(sides.left, 0, 0, map, fL))                              // from the arm tip, going back
+      .concat(placeSide(sides.center, L0 + (B - lenC*fC)/2, 1, map, fC))         // centred on the back bar
+      .concat(placeSide(sides.right, L0 + B + (L0 - lenR*fR), 2, map, fR));      // ending at the arm tip
+    return { hw: hw, arm: arm, placements: placements };
+  }
+
+  function upright(a){
+    a = ((a % 360) + 540) % 360 - 180;
+    if(a > 90) a -= 180; else if(a < -90) a += 180;
+    return a;
   }
 
   function wrapLabel(label){
@@ -655,71 +738,46 @@
     var svg = document.getElementById("stageSvg");
     while(svg.firstChild) svg.removeChild(svg.firstChild);
 
-    var rowsData = computeRows();
-    var n = rowsData.length;
+    var rowsData = computeRows().sort(function(a,b){ return a.ringOffset - b.ringOffset; }); // front row first
     var mode = state.layout;
-    var mirror = state.perspective === "band";
+    var bandView = state.perspective === "band";
 
-    var allPlacements = []; // {x,y,angle,chair,isGroupStart,isGroupEnd}
-    var cx = 0;
-    var conductorPos;
+    var allPlacements = []; // {x,y,angle,seg,chair,isGroupStart,isGroupEnd}
+    var conductorPos = { x: 0, y: 0 };
 
     if(mode === "straight"){
-      var topY = 40;
-      var maxWidth = 0;
-      rowsData.forEach(function(rd){ maxWidth = Math.max(maxWidth, rd.requiredLen); });
-      rowsData.forEach(function(rd, i){
-        var y = topY + i*ROW_GAP;
-        var sampler = function(d){ return { x: d - rd.requiredLen/2, y: y, angle: 0 }; };
-        var placed = layoutRowChairs(rd.row, sampler, rd.requiredLen, rd.requiredLen);
-        allPlacements = allPlacements.concat(placed);
+      rowsData.forEach(function(rd){
+        var y = -(FRONT_GAP + rd.ringOffset*ROW_GAP);
+        var half = rd.requiredLen/2;
+        allPlacements = allPlacements.concat(layoutRowChairs(rd.row, function(v){
+          return { x: v - half, y: y, angle: 0 };
+        }, CHAIR_SLOT, GROUP_GAP));
       });
-      conductorPos = { x: 0, y: topY + n*ROW_GAP + 24 };
     }
     else if(mode === "semicircle"){
-      var conductorY = 30;
-      rowsData.forEach(function(rd){
-        var radius = BASE_RADIUS + rd.ringOffset*ROW_GAP;
-        var angleSpan = requiredToAngle(rd.requiredLen, radius);
-        var length = radius*angleSpan;
-        var sampler = function(d){
-          var t = (d - length/2) / radius;
-          return {
-            x: radius*Math.sin(t),
-            y: conductorY + radius*Math.cos(t),
-            angle: t*180/Math.PI
-          };
-        };
-        var placed = layoutRowChairs(rd.row, sampler, length, rd.requiredLen);
-        allPlacements = allPlacements.concat(placed);
+      var prevR = 0;
+      rowsData.forEach(function(rd, i){
+        var fit = fitArcRow(rd.row, i === 0 ? BASE_RADIUS : Math.max(BASE_RADIUS, prevR + ROW_GAP));
+        prevR = fit.r;
+        var half = fit.len/2;
+        allPlacements = allPlacements.concat(layoutRowChairs(rd.row, function(v){
+          var t = (v - half) / fit.r;
+          return { x: fit.r*Math.sin(t), y: -fit.r*Math.cos(t), angle: t*180/Math.PI };
+        }, fit.slot, GROUP_GAP));
       });
-      conductorPos = { x: 0, y: conductorY - 54 };
     }
-    else { // u-shape
-      var conductorY2 = 30;
-      rowsData.forEach(function(rd){
-        var contentHalf = rd.requiredLen / (2*(U_ASPECT+1));
-        var halfWidth = Math.max(contentHalf, BASE_HALFWIDTH + rd.ringOffset*NEST_HALFWIDTH);
-        var depth = halfWidth*U_ASPECT;
-        var leftLen = depth, bottomLen = halfWidth*2, rightLen = depth;
-        var total = leftLen+bottomLen+rightLen;
-        var sampler = function(d, halfWidth, depth, leftLen, bottomLen){
-          var x,y,angle;
-          if(d < leftLen){ x=-halfWidth; y=conductorY2+d; angle=90; }
-          else if(d < leftLen+bottomLen){ x=-halfWidth+(d-leftLen); y=conductorY2+depth; angle=0; }
-          else { var r=d-leftLen-bottomLen; x=halfWidth; y=conductorY2+depth-r; angle=-90; }
-          return {x:x,y:y,angle:angle};
-        };
-        var boundSampler = (function(hw,dp,ll,bl){ return function(d){ return sampler(d,hw,dp,ll,bl); }; })(halfWidth,depth,leftLen,bottomLen);
-        var placed = layoutRowChairs(rd.row, boundSampler, total, rd.requiredLen);
-        allPlacements = allPlacements.concat(placed);
+    else { // u-shape: arms reach down both sides of the conductor
+      var prevHw = 0, prevArm = 0;
+      rowsData.forEach(function(rd, i){
+        var fit = fitURow(rd.row, i === 0 ? U_HALFWIDTH : prevHw + U_ROW_GAP, i === 0 ? U_ARM : prevArm + U_ROW_GAP);
+        prevHw = fit.hw; prevArm = fit.arm;
+        allPlacements = allPlacements.concat(fit.placements);
       });
-      conductorPos = { x: 0, y: conductorY2 - 54 };
     }
 
-    if(mirror){
-      allPlacements.forEach(function(p){ p.x = -p.x; p.angle = -p.angle; });
-      conductorPos.x = -conductorPos.x;
+    if(bandView){
+      // Seen from the band, the whole picture turns around: conductor at the top, back row at the bottom.
+      allPlacements.forEach(function(p){ p.x = -p.x; p.y = -p.y; p.angle = upright(p.angle + 180); });
     }
 
     // bounds
@@ -779,7 +837,8 @@
         rx: 4, fill: paper, stroke: ink, "stroke-width":"1.8"
       }));
       var lines = wrapLabel(p.chair.label || "");
-      var fontSize = lines.length>1 ? 11 : 12.5;
+      var longest = Math.max.apply(null, lines.map(function(l){ return l.length; }));
+      var fontSize = longest > 9 ? 9.5 : (longest > 7 ? 10.5 : (lines.length>1 ? 11 : 12.5));
       lines.forEach(function(ln, li){
         var ty = (li - (lines.length-1)/2) * (fontSize+2);
         var txt = el("text", {
@@ -814,25 +873,14 @@
       count + " chair" + (count===1?"":"s") + " · " + state.rows.length + " row" + (state.rows.length===1?"":"s");
   }
 
-  function requiredToAngle(requiredLen, radius){
-    var angle = requiredLen / radius;
-    return Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, angle));
-  }
-
   function groupConnectorSegments(placements){
-    // draws a short stub+connector per contiguous run between isGroupStart..isGroupEnd
-    // placements are already in row order because layoutRowChairs preserves order
+    // short connector between neighbouring chairs of one group, never across a corner
     var segs = [];
-    var runStart = null;
-    for(var i=0;i<placements.length;i++){
-      var p = placements[i];
-      if(p.isGroupStart) runStart = p;
-      if(p.isGroupEnd && runStart){
-        if(runStart !== p){
-          segs.push({ x1: runStart.x, y1: runStart.y, x2: p.x, y2: p.y });
-        }
-        runStart = null;
-      }
+    for(var i=1;i<placements.length;i++){
+      var a = placements[i-1], b = placements[i];
+      if(b.isGroupStart) continue;
+      if((a.seg||0) !== (b.seg||0)) continue;
+      segs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
     }
     return segs;
   }
