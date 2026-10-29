@@ -74,6 +74,33 @@
   @media (max-width: 860px){
     .workspace{grid-template-columns: 1fr;}
   }
+  /* wide screens: the roster rail scrolls on its own and the chart stays put */
+  @media (min-width: 861px){
+    .rail, .stage-panel{
+      position:sticky; top:12px;
+      max-height:calc(100vh - 24px);
+    }
+    .rail{overflow-y:auto; overscroll-behavior:contain; padding-right:6px; scrollbar-gutter:stable;}
+    .stage-panel{overflow:auto;}
+  }
+  .saved-item{
+    display:flex; align-items:center; gap:6px; padding:6px 0;
+    border-top:1px solid var(--border);
+  }
+  .saved-item:first-child{border-top:0;}
+  .saved-info{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .saved-name{font-weight:600; font-size:0.86rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .saved-meta{font-size:0.72rem; color:var(--fg-muted);}
+  .saved-open{flex:none; width:auto; padding:4px 12px; font-size:0.78rem;}
+  .save-row{display:flex; gap:6px; margin-bottom:10px;}
+  .save-row .text-input{flex:1; min-width:0;}
+  .transfer summary{cursor:pointer; font-size:0.78rem; font-weight:600; color:var(--fg-muted); margin-top:10px;}
+  .transfer textarea{
+    width:100%; min-height:64px; margin-top:8px; padding:8px 10px; border-radius:7px;
+    border:1px solid var(--border-strong); background:var(--surface-2); color:var(--fg);
+    font-family:var(--font-mono); font-size:0.7rem; resize:vertical;
+  }
+  .transfer .btn-row{display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;}
 
   /* ---- panels ---- */
   .panel{
@@ -239,7 +266,25 @@
 
   <div class="workspace">
     <!-- EDITOR COLUMN -->
-    <div>
+    <div class="rail">
+      <section class="panel">
+        <p class="panel-title">Saved layouts</p>
+        <div class="save-row">
+          <input class="text-input" id="saveName" type="text" placeholder="Name, e.g. Winter Concert U">
+          <button type="button" class="primary-btn" id="saveBtn" style="margin:0; width:auto; padding:8px 14px;">Save</button>
+        </div>
+        <div id="savedList"></div>
+        <p class="hint" id="savedMsg" aria-live="polite">Saved layouts stay in this browser.</p>
+        <details class="transfer">
+          <summary>Move to another computer</summary>
+          <textarea id="transferBox" placeholder="Copy produces text here. To import, paste copied text here." aria-label="Saved layouts as text"></textarea>
+          <div class="btn-row">
+            <button type="button" class="ghost-btn" id="exportBtn">Copy my saved layouts</button>
+            <button type="button" class="ghost-btn" id="importBtn">Add pasted layouts</button>
+          </div>
+        </details>
+      </section>
+
       <section class="panel">
         <p class="panel-title">Chart</p>
         <label class="field">
@@ -928,7 +973,168 @@
     }
   });
 
+  // ---------------- SAVED LAYOUTS ----------------
+  // Named snapshots of the whole chart (title, conductor, formation, view, roster).
+  // Stored in this browser only; "Move to another computer" copies them as text.
+  var SAVED_KEY = "bandSeatingChart.saved.v1";
+
+  function readSaved(){
+    try{
+      var raw = localStorage.getItem(SAVED_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list.filter(validEntry) : [];
+    }catch(e){ return []; }
+  }
+  function validEntry(e){
+    return e && typeof e.name === "string" && e.data && Array.isArray(e.data.rows);
+  }
+  function writeSaved(list){
+    try{ localStorage.setItem(SAVED_KEY, JSON.stringify(list)); return true; }
+    catch(e){ return false; }
+  }
+  function savedMsg(text, bad){
+    var m = document.getElementById("savedMsg");
+    m.textContent = text;
+    m.style.color = bad ? "var(--danger)" : "var(--fg-muted)";
+  }
+  var LAYOUT_NAMES = { straight: "Straight", semicircle: "Semicircle", u: "U-shape" };
+
+  function renderSaved(){
+    var list = readSaved();
+    var el = document.getElementById("savedList");
+    el.innerHTML = "";
+    if(!list.length){
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.style.margin = "0";
+      empty.textContent = "Nothing saved yet. Name this chart above and press Save to keep it for next time.";
+      el.appendChild(empty);
+      return;
+    }
+    list.forEach(function(entry, i){
+      var row = document.createElement("div");
+      row.className = "saved-item";
+
+      var info = document.createElement("div");
+      info.className = "saved-info";
+      var nm = document.createElement("span");
+      nm.className = "saved-name";
+      nm.textContent = entry.name;
+      var meta = document.createElement("span");
+      meta.className = "saved-meta";
+      var chairs = 0;
+      entry.data.rows.forEach(function(r){ (r.groups||[]).forEach(function(g){ chairs += (g.chairs||[]).length; }); });
+      meta.textContent = (LAYOUT_NAMES[entry.data.layout] || "Straight") + " · " + chairs + " chairs";
+      info.appendChild(nm); info.appendChild(meta);
+      row.appendChild(info);
+
+      var open = document.createElement("button");
+      open.type = "button"; open.className = "ghost-btn saved-open"; open.textContent = "Open";
+      open.addEventListener("click", function(){ openSaved(entry); });
+      row.appendChild(open);
+
+      var del = document.createElement("button");
+      del.type = "button"; del.className = "icon-btn danger"; del.textContent = "×";
+      del.title = "Delete saved layout"; del.setAttribute("aria-label", "Delete " + entry.name);
+      var armed = false, t = null;
+      del.addEventListener("click", function(){
+        if(!armed){
+          armed = true; del.textContent = "Delete?"; del.style.width = "auto"; del.style.padding = "0 7px";
+          t = setTimeout(function(){ armed = false; del.textContent = "×"; del.style.width = ""; del.style.padding = ""; }, 3000);
+        } else {
+          clearTimeout(t);
+          var cur = readSaved().filter(function(e){ return e.name !== entry.name; });
+          writeSaved(cur);
+          savedMsg("Deleted “" + entry.name + "”.");
+          renderSaved();
+        }
+      });
+      row.appendChild(del);
+      el.appendChild(row);
+    });
+  }
+
+  function syncIds(obj){
+    var maxNum = 0;
+    JSON.stringify(obj).replace(/"id(\d+)"/g, function(_, n){ maxNum = Math.max(maxNum, parseInt(n,10)); return _; });
+    nextId = Math.max(nextId, maxNum + 1);
+  }
+
+  function openSaved(entry){
+    var copy = JSON.parse(JSON.stringify(entry.data));
+    syncIds(copy);
+    state = copy;
+    document.getElementById("saveName").value = entry.name;
+    scheduleSave(); renderEditor(); renderChart();
+    savedMsg("Opened “" + entry.name + "”.");
+  }
+
+  document.getElementById("saveBtn").addEventListener("click", function(){
+    var input = document.getElementById("saveName");
+    var name = input.value.trim() || state.title.trim() || "Untitled layout";
+    input.value = name;
+    var list = readSaved();
+    var snapshot = JSON.parse(JSON.stringify(state));
+    var idx = -1;
+    list.forEach(function(e, i){ if(e.name === name) idx = i; });
+    var entry = { name: name, savedAt: Date.now(), data: snapshot };
+    if(idx >= 0) list[idx] = entry; else list.push(entry);
+    if(writeSaved(list)){
+      savedMsg(idx >= 0 ? "Updated “" + name + "”." : "Saved “" + name + "”.");
+    } else {
+      savedMsg("Couldn’t save: this browser is blocking storage. Use “Move to another computer” below to keep a copy as text.", true);
+    }
+    renderSaved();
+  });
+  document.getElementById("saveName").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); document.getElementById("saveBtn").click(); }
+  });
+
+  document.getElementById("exportBtn").addEventListener("click", function(){
+    var box = document.getElementById("transferBox");
+    var list = readSaved();
+    if(!list.length){ savedMsg("Nothing saved to copy yet.", true); return; }
+    box.value = JSON.stringify({ app: "bandSeatingChart", version: 1, layouts: list });
+    box.focus(); box.select();
+    var done = function(){ savedMsg("Copied " + list.length + " saved layout" + (list.length===1?"":"s") + ". Paste it into the same box on the other computer."); };
+    var fail = function(){ savedMsg("Text is selected in the box. Copy it with Ctrl+C (or Cmd+C)."); };
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(box.value).then(done, fail);
+      } else { fail(); }
+    }catch(e){ fail(); }
+  });
+
+  document.getElementById("importBtn").addEventListener("click", function(){
+    var box = document.getElementById("transferBox");
+    var incoming;
+    try{
+      var parsed = JSON.parse(box.value);
+      incoming = Array.isArray(parsed) ? parsed : parsed.layouts;
+      if(!Array.isArray(incoming)) throw new Error("no layouts");
+      incoming = incoming.filter(validEntry);
+      if(!incoming.length) throw new Error("empty");
+    }catch(e){
+      savedMsg("That text isn’t a copied set of layouts. Paste exactly what “Copy my saved layouts” produced.", true);
+      return;
+    }
+    var list = readSaved();
+    incoming.forEach(function(entry){
+      var idx = -1;
+      list.forEach(function(e, i){ if(e.name === entry.name) idx = i; });
+      if(idx >= 0) list[idx] = entry; else list.push(entry);
+    });
+    if(writeSaved(list)){
+      savedMsg("Added " + incoming.length + " layout" + (incoming.length===1?"":"s") + " (same names were replaced).");
+      box.value = "";
+    } else {
+      savedMsg("Couldn’t save: this browser is blocking storage.", true);
+    }
+    renderSaved();
+  });
+
   // ---------------- INITIAL RENDER ----------------
+  renderSaved();
   renderEditor();
   renderChart();
 
